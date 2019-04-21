@@ -27,15 +27,4 @@ int main() {
     ::memcpy(vm._data, program, sizeof(program));
     
     vm.run();
-
-    exit(0);
-
-    vm._push(2);
-    vm._push(1);
-    vm.less();
-    vm._push('0');
-    vm.add();
-    vm.putc();
-    vm._push('\n');
-    vm.putc();
 }

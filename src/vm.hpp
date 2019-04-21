@@ -1,7 +1,6 @@
 /* 
-    VM where every opcode can be changed
-    on the fly, whcih means you can change
-    the vm
+    VM where data and text segements are intermingled
+    which allows us to write self-modifying code easily
  */
 #include <stdio.h>
 #include <functional>
@@ -64,7 +63,7 @@ struct VM {
     void _push(val_type v) { _stack[_sp++] = v; }
     val_type _pop() { return _stack[--_sp]; }
     val_type _peek() { return _stack[_sp-1]; }
-    void pr_stack() { for( int i=0; i < 10; ++i ) printf(">> %d\n", _stack[i]);}
+    void pr_stack() { for( int i=0; i < 10; ++i ) printf(">> %d: %d\n", _stack[i]);}
 
     void run(){
         for( val_type op; ; ) {
