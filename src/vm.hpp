@@ -4,6 +4,12 @@
  */
 #include <stdio.h>
 #include <functional>
+#include <boost/preprocessor/seq/seq.hpp>
+#include <boost/preprocessor/seq/transform.hpp>
+#include <boost/preprocessor/seq/to_tuple.hpp>
+#include <boost/preprocessor/seq/for_each.hpp>
+#include <boost/preprocessor/seq/elem.hpp>
+#include <boost/preprocessor/seq/enum.hpp>
 
 #define STACK_SIZE 1<<16
 #define DATA_SIZE 1<<16
@@ -28,6 +34,60 @@ void name() {\
     val_type b = _pop();\
     _push(f(a,b));\
 }
+
+#define OPCODES \
+        ((PUSHI)(pushi))\
+        ((POP)(pop))\
+        ((DUP)(dup))\
+\
+        ((PUTC)(putc))\
+        ((PUTI)(puti))\
+\
+        ((GETF)(getf))\
+\
+        ((PC)(pc))\
+        ((PCI)(pci))\
+        ((PCZI)(pczi))\
+        ((PUSHD)(pushd))\
+        ((LOAD)(load))\
+        ((SAVE)(save))\
+        ((SAVED)(saved))\
+\
+        ((LESS)(less))\
+        ((LE)(le))\
+        ((GT)(greater))\
+        ((GE)(ge))\
+        ((EQ)(eq))\
+        ((NEQ)(neq))\
+\
+        ((ADD)(add))\
+        ((SUB)(sub))\
+        ((MUL)(mul))\
+        ((DIV)(div))\
+\
+        ((AND)(And))\
+        ((OR)(Or))\
+        ((XOR)(Xor))\
+\
+        ((NOT)(Not))\
+        ((NEG)(neg))\
+\
+        ((CALL)(call))\
+        ((RET)(ret))
+
+
+#define _HEAD(a,b,c) BOOST_PP_SEQ_HEAD(c)
+#define _MAKE_FN(a, b) &a::b
+#define _DEF_FN(a,b,c) _ops[BOOST_PP_SEQ_HEAD(c)] = _MAKE_FN(VM, BOOST_PP_SEQ_ELEM(1, c));
+
+#define _STR(x) #x
+#define _STRX(a,b,x) _STR(x\0)
+#define VM_TOKENS BOOST_PP_SEQ_TRANSFORM(_HEAD, _, OPCODES)
+#define VM_TOKEN_STRING BOOST_PP_SEQ_TRANSFORM(_STRX, _, VM_TOKENS)
+#define VM_OP_DEFINE BOOST_PP_SEQ_FOR_EACH(_DEF_FN, _, OPCODES)
+#define VM_STRING_LIST BOOST_PP_SEQ_ENUM(VM_TOKEN_STRING)
+#define VM_NUM_OPS BOOST_PP_SEQ_SIZE(OPCODES)
+const char* k_token_names[] = { "HALT", VM_STRING_LIST };
 typedef int val_type;
 
 val_type Less(val_type a, val_type b) { return a < b; }
@@ -35,20 +95,19 @@ val_type Add(val_type a, val_type b) { return a + b; }
 
 
 struct VM {
-    val_type _pc;
-    val_type _sp;
-    val_type _fp;
+    val_type _pc; // program ctr
+    val_type _sp; // stack ptr
+    val_type _rp; // return ptr
 
     val_type _stack[STACK_SIZE];
     val_type _data[DATA_SIZE];
+    val_type _callstack[DATA_SIZE];
+
     typedef void(VM::*OP)();
 
     val_type sp_get() { return _sp; }
     void sp_set(val_type v) { _sp = v; }
 
-    val_type fp_get() { return _fp; }
-    void fp_set(val_type v) { _fp = v; }
-   
     val_type pc_get() { return _pc; }
     void pc_set(val_type v) { _pc = v; }
 
@@ -60,24 +119,61 @@ struct VM {
     void data_set(val_type dp, val_type d) { _data[dp] = d; }
 
     // facility
+    // callstack
+    void _pushr(val_type v) { _callstack[_rp++] = v; }
+    val_type _popr() { return _callstack[--_rp]; }
+    // data stack
     void _push(val_type v) { _stack[_sp++] = v; }
     val_type _pop() { return _stack[--_sp]; }
     val_type _peek() { return _stack[_sp-1]; }
-    void pr_stack() { for( int i=0; i < 10; ++i ) printf(">> %d: %d\n", _stack[i]);}
+    void pr_stack() { 
+        for( int i=0; i < 10; ++i ) {
+            if(i==_sp)
+                printf("**");
+            printf("%d", _stack[i]);
+            if(i==_sp)
+                printf("**");
+            printf(", ");
+        } 
+    }
 
+    void dbg_print(val_type c) {
+        if(c>'a'&&c<'Z')
+            printf("%c", c);
+        else
+            printf("%d", c);
+    }
     void run(){
         for( val_type op; ; ) {
-            if(!(op = data_get(_pc++)))
+            op = data_get(_pc++);
+            if( op == HALT)
                 break;
+#ifdef DEBUG
+            val_type stack = _stack[_sp];
+            val_type next_val = data_get(_pc);
+            printf("%d: %s ", _pc-1, k_token_names[op]);
+            dbg_print(next_val);
+            printf("; ");
+            printf("sp=%d: ", _sp);
+            //dbg_print(stack);
+            pr_stack();
+            printf("\n");
+#endif
             (((VM*)this) ->* (_ops[op]))();
         }
     }
 
     // ******
     // ops
+    // ******
     
     // print char
-    void putc(){ ::putc(_pop(), ::stdout); }
+    void putc(){ 
+#ifdef DEBUG
+        printf(">>> ");
+#endif
+        ::putc(_pop(), ::stdout);
+    }
     void puti(){ ::printf("%d", _pop()); }
 
     // read from file
@@ -123,6 +219,16 @@ struct VM {
     // set pc to location if top of stack is zero 
     void pczi(){ if( !_pop() ) pc_set(_data[_pc++]); else _pc++; }
 
+    // subroutines
+    // assumes args have been pushed onto the stack before calling this
+    void call(){ 
+        _pushr(_pc+1); 
+        _pc = _data[_pc];
+    };
+    void ret(){ 
+        _pc = _popr();
+    }
+
     UNARY(!, Not)
     UNARY(-, neg)
     
@@ -141,85 +247,14 @@ struct VM {
     BINARY(&, And)
     BINARY(|, Or)
     BINARY(^, Xor)
-    
-    enum {
-        HALT,
-        PUSHI, 
-        POP,
-        DUP,
 
-        PC,
-        PCI,
-        PCZI,
-        
-        PUSHD,
-        LOAD,
-
-        SAVE,
-        SAVED,
-       
-        PUTC,
-        PUTI,
-        
-        GETF,
-
-        LESS,
-        LE,
-        GT,
-        GE,
-        EQ,
-        NEQ,
-
-        ADD,
-        SUB,
-        MUL,
-        DIV,
-  
-        AND,
-        OR,
-        XOR, 
-
-        NOT,
-        NEG,
-    };
+    enum { HALT, BOOST_PP_SEQ_ENUM(VM_TOKENS) };
     OP _ops[OP_SIZE];
 
-    VM() : _pc(0), _sp(0), _fp(0) {
-        _ops[PUSHI] = &VM::pushi;
-        _ops[POP] = &VM::pop;
-        _ops[DUP] = &VM::dup;
-        
-        _ops[PUTC] = &VM::putc;
-        _ops[PUTI] = &VM::puti;
-
-        _ops[GETF] = &VM::getf;
-        
-        _ops[PC] = &VM::pc;
-        _ops[PCI] = &VM::pci;
-        _ops[PCZI] = &VM::pczi;
-        _ops[PUSHD] = &VM::pushd;
-        _ops[LOAD] = &VM::load;
-        _ops[SAVE] = &VM::save;
-        _ops[SAVED] = &VM::saved;
-        
-        _ops[LESS] = &VM::less;
-        _ops[LE] = &VM::le;
-        _ops[GT] = &VM::greater;
-        _ops[GE] = &VM::ge;
-        _ops[EQ] = &VM::eq;
-        _ops[NEQ] = &VM::neq;
-
-        _ops[ADD] = &VM::add;
-        _ops[SUB] = &VM::sub;
-        _ops[MUL] = &VM::mul;
-        _ops[DIV] = &VM::div;
-
-        _ops[AND] = &VM::And;
-        _ops[OR] = &VM::Or;
-        _ops[XOR] = &VM::Xor;
-        
-        _ops[NOT] = &VM::Not;
-        _ops[NEG] = &VM::neg;
-    }
+    VM() : _pc(0), _sp(0) {
+        VM_OP_DEFINE;
+        token_names = k_token_names;
+       }; 
+   const char** token_names;
 };
 
