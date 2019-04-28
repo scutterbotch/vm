@@ -23,8 +23,9 @@ int main() {
     const val_type program[] = {
         VM::PCI, 9,
         'p', 'r', 'o', 'g', '.', 'y', 0,
-        VM::GETF, 2, 15,
-        VM::PCI, 15,
+        VM::PUSHI, 16, // where the program will go,
+        VM::GETF, 2,   // the name
+        VM::PCI, 16,
         VM::HALT
     }; 
     ::memcpy(vm._data, program, sizeof(program));

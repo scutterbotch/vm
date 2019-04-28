@@ -189,8 +189,8 @@ struct VM {
     void getf(){ 
         char fname[32];
         int i = 0;
+        int dest_loc = _pop();
         int name_loc = _data[_pc++];
-        int dest_loc = _data[_pc++];
         while(fname[i] = _data[name_loc+i]){
             //printf("%c:", fname[i]);
             i++;
