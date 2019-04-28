@@ -2,6 +2,8 @@
     VM where data and text segements are intermingled
     which allows us to write self-modifying code easily
  */
+#pragma once
+
 #include <stdio.h>
 #include <functional>
 #include <boost/preprocessor/seq/seq.hpp>
@@ -11,9 +13,12 @@
 #include <boost/preprocessor/seq/elem.hpp>
 #include <boost/preprocessor/seq/enum.hpp>
 
-#define STACK_SIZE 1<<16
-#define DATA_SIZE 1<<16
+
+#define STACK_SIZE 64
+#define DATA_SIZE (32*1024)
 #define OP_SIZE 1<<5
+typedef int val_type;
+
 // building blocks
 #define UNARY(f, name) \
 void name() {\
@@ -87,12 +92,8 @@ void name() {\
 #define VM_OP_DEFINE BOOST_PP_SEQ_FOR_EACH(_DEF_FN, _, OPCODES)
 #define VM_STRING_LIST BOOST_PP_SEQ_ENUM(VM_TOKEN_STRING)
 #define VM_NUM_OPS BOOST_PP_SEQ_SIZE(OPCODES)
+
 const char* k_token_names[] = { "HALT", VM_STRING_LIST };
-typedef int val_type;
-
-val_type Less(val_type a, val_type b) { return a < b; }
-val_type Add(val_type a, val_type b) { return a + b; }
-
 
 struct VM {
     val_type _pc; // program ctr
@@ -100,8 +101,9 @@ struct VM {
     val_type _rp; // return ptr
 
     val_type _stack[STACK_SIZE];
+    val_type _callstack[STACK_SIZE];
+    
     val_type _data[DATA_SIZE];
-    val_type _callstack[DATA_SIZE];
 
     typedef void(VM::*OP)();
 
@@ -118,20 +120,24 @@ struct VM {
     val_type data_get(val_type dp){ return _data[dp]; }
     void data_set(val_type dp, val_type d) { _data[dp] = d; }
 
+    // ************
     // facility
+    //
     // callstack
     void _pushr(val_type v) { _callstack[_rp++] = v; }
     val_type _popr() { return _callstack[--_rp]; }
+
     // data stack
     void _push(val_type v) { _stack[_sp++] = v; }
     val_type _pop() { return _stack[--_sp]; }
     val_type _peek() { return _stack[_sp-1]; }
+
     void pr_stack() { 
         for( int i=0; i < 10; ++i ) {
-            if(i==_sp)
+            if(i==_sp-1)
                 printf("**");
             printf("%d", _stack[i]);
-            if(i==_sp)
+            if(i==_sp-1)
                 printf("**");
             printf(", ");
         } 
@@ -143,23 +149,28 @@ struct VM {
         else
             printf("%d", c);
     }
+
+    // run the VM
     void run(){
         for( val_type op; ; ) {
             op = data_get(_pc++);
-            if( op == HALT)
+            if(op == HALT)
                 break;
 #ifdef DEBUG
             val_type stack = _stack[_sp];
             val_type next_val = data_get(_pc);
-            printf("%d: %s ", _pc-1, k_token_names[op]);
+            printf("%d: %s ", _pc-1, token_names[op]);
             dbg_print(next_val);
             printf("; ");
             printf("sp=%d: ", _sp);
-            //dbg_print(stack);
+            pr_stack();
+#endif
+            (((VM*)this) ->* (_ops[op]))();
+#ifdef DEBUG
+            printf(" ---> ");
             pr_stack();
             printf("\n");
 #endif
-            (((VM*)this) ->* (_ops[op]))();
         }
     }
 
@@ -169,9 +180,6 @@ struct VM {
     
     // print char
     void putc(){ 
-#ifdef DEBUG
-        printf(">>> ");
-#endif
         ::putc(_pop(), ::stdout);
     }
     void puti(){ ::printf("%d", _pop()); }
