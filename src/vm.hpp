@@ -16,7 +16,7 @@
 
 #define STACK_SIZE 64
 #define DATA_SIZE (32*1024)
-#define OP_SIZE 1<<5
+#define OP_SIZE 1<<6
 typedef int val_type;
 
 // building blocks
@@ -78,7 +78,10 @@ void name() {\
         ((NEG)(neg))\
 \
         ((CALL)(call))\
-        ((RET)(ret))
+        ((RET)(ret))\
+\
+        ((PUSHR)(pushr))\
+        ((POPR)(popr))
 
 
 #define _HEAD(a,b,c) BOOST_PP_SEQ_HEAD(c)
@@ -132,17 +135,19 @@ struct VM {
     val_type _pop() { return _stack[--_sp]; }
     val_type _peek() { return _stack[_sp-1]; }
 
-    void pr_stack() { 
+    void _pr_stack(val_type* stack, int sp) { 
         for( int i=0; i < 10; ++i ) {
-            if(i==_sp-1)
+            if(i==sp-1)
                 printf("**");
-            printf("%d", _stack[i]);
-            if(i==_sp-1)
+            printf("%d", stack[i]);
+            if(i==sp-1)
                 printf("**");
             printf(", ");
         } 
     }
 
+    void pr_stack() { _pr_stack(_stack, _sp); }
+    void pr_rstack() { _pr_stack(_callstack, _rp); }
     void dbg_print(val_type c) {
         if(c>'a'&&c<'Z')
             printf("%c", c);
@@ -157,18 +162,28 @@ struct VM {
             if(op == HALT)
                 break;
 #ifdef DEBUG
+            printf("\n-----------------\n");
+            printf("\n");
+            printf(">> sp=%d: ", _sp);
+            pr_stack();
+            printf("\n");
+            printf(">> rp=%d: ", _rp);
+            pr_rstack();
+            printf("\n");
             val_type stack = _stack[_sp];
             val_type next_val = data_get(_pc);
             printf("%d: %s ", _pc-1, token_names[op]);
             dbg_print(next_val);
-            printf("; ");
-            printf("sp=%d: ", _sp);
-            pr_stack();
+            ::fflush(stdout);
 #endif
             (((VM*)this) ->* (_ops[op]))();
 #ifdef DEBUG
-            printf(" ---> ");
+            printf("\n");
+            printf("<< sp=%d: ", _sp);
             pr_stack();
+            printf("\n");
+            printf("<< rp=%d: ", _rp);
+            pr_rstack();
             printf("\n");
 #endif
         }
@@ -180,9 +195,15 @@ struct VM {
     
     // print char
     void putc(){ 
+        printf(">>> ");
         ::putc(_pop(), ::stdout);
+        printf("\n");
     }
-    void puti(){ ::printf("%d", _pop()); }
+    void puti(){ 
+        printf(">>> ");
+        ::printf("%d\n", _pop());
+        printf("\n");
+    }
 
     // read from file
     //GETF FILENAME_LOC, DATA_LOC_START
@@ -237,6 +258,14 @@ struct VM {
         _pc = _popr();
     }
 
+    // allow us to use the return stack
+    void pushr() {
+        _pushr(_pop());
+    }
+    void popr() {
+        _push(_popr());
+    }
+
     UNARY(!, Not)
     UNARY(-, neg)
     
@@ -259,10 +288,10 @@ struct VM {
     enum { HALT, BOOST_PP_SEQ_ENUM(VM_TOKENS) };
     OP _ops[OP_SIZE];
 
-    VM() : _pc(0), _sp(0) {
+    VM() : _pc(0), _sp(0), _rp(0) {
         VM_OP_DEFINE;
         token_names = k_token_names;
-       }; 
+   }; 
    const char** token_names;
 };
 
